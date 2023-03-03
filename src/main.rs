@@ -35,70 +35,75 @@ struct Delta {
     content: Option<String>,
 }
 
-async fn complete(messages: &mut Vec<Message>) {
-    let client = reqwest::Client::new();
+struct Client {
+    apikey: String,
+    client: reqwest::Client,
+}
 
-    let completion = ChatCompletionRequest {
-        model: "gpt-3.5-turbo".to_string(),
-        messages: messages.to_vec(),
-        stream: true,
-    };
+impl Client {
+    async fn complete(&self, messages: &mut Vec<Message>) {
+        let completion = ChatCompletionRequest {
+            model: "gpt-3.5-turbo".to_string(),
+            messages: messages.to_vec(),
+            stream: true,
+        };
 
-    let req = client
-        .post("https://api.openai.com/v1/chat/completions")
-        .header("Content-Type", "application/json")
-        .header(
-            "Authorization",
-            format!(
-                "Bearer {}",
-                "sk-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
-            ),
-        );
-    let body = serde_json::to_string(&completion).unwrap();
-    let req = req.body(body);
+        let req = self
+            .client
+            .post("https://api.openai.com/v1/chat/completions")
+            .header("Content-Type", "application/json")
+            .header("Authorization", format!("Bearer {}", self.apikey,));
+        let body = serde_json::to_string(&completion).unwrap();
+        let req = req.body(body);
 
-    let mut stream = req.send().await.unwrap().bytes_stream();
-    let mut completion_output = String::new();
+        let mut stream = req.send().await.unwrap().bytes_stream();
+        let mut completion_output = String::new();
 
-    while let Some(item) = stream.next().await {
-        let item = item.unwrap();
-        let vec = &item.to_vec();
-        let text = std::str::from_utf8(vec).unwrap();
+        while let Some(item) = stream.next().await {
+            let item = item.unwrap();
+            let vec = &item.to_vec();
+            let text = std::str::from_utf8(vec).unwrap();
 
-        for data in text.split("data: ") {
-            if data.contains("[DONE]") {
-                break;
-            }
-            if data.len() < 6 {
-                continue;
-            }
-
-            let data = data.trim();
-            let data = match serde_json::from_str::<ChatCompletionChunk>(data) {
-                Ok(data) => data,
-                Err(e) => {
-                    println!("Error: {:#?}", e);
+            for data in text.split("data: ") {
+                if data.contains("[DONE]") {
+                    break;
+                }
+                if data.len() < 6 {
                     continue;
                 }
-            };
 
-            let choice = data.choices[0].clone();
-            let content = &choice.delta.content.unwrap_or("".to_string());
-            print!("{}", content);
-            completion_output.push_str(content);
-            io::stdout().flush().unwrap();
+                let data = data.trim();
+                let data = match serde_json::from_str::<ChatCompletionChunk>(data) {
+                    Ok(data) => data,
+                    Err(e) => {
+                        println!("error on deserializing chunk: {:#?}", e);
+                        continue;
+                    }
+                };
+
+                let choice = data.choices[0].clone();
+                let content = &choice.delta.content.unwrap_or("".to_string());
+                print!("{}", content);
+                completion_output.push_str(content);
+                io::stdout().flush().unwrap();
+            }
         }
-    }
 
-    messages.push(Message {
-        role: "system".to_string(),
-        content: completion_output,
-    });
-    println!("");
+        messages.push(Message {
+            role: "system".to_string(),
+            content: completion_output,
+        });
+        println!("");
+    }
 }
 
 #[tokio::main]
 async fn main() {
+    let client = Client {
+        apikey: "sk-xxxxxxxxxxxxxxxxxxxxxxxx".to_string(),
+        client: reqwest::Client::new(),
+    };
+
     let mut messages: Vec<Message> = vec![];
 
     loop {
@@ -111,6 +116,7 @@ async fn main() {
             role: "user".to_string(),
             content: input.clone(),
         });
-        complete(&mut messages).await;
+
+        client.complete(&mut messages).await;
     }
 }
