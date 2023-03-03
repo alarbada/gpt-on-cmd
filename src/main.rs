@@ -97,10 +97,19 @@ impl Client {
     }
 }
 
+#[derive(Serialize, Deserialize, Debug)]
+struct Config {
+    apikey: String,
+}
+
 #[tokio::main]
 async fn main() {
+    let file = std::fs::File::open("config.json").unwrap();
+    let reader = std::io::BufReader::new(file);
+    let config: Config = serde_json::from_reader(reader).unwrap();
+
     let client = Client {
-        apikey: "sk-xxxxxxxxxxxxxxxxxxxxxxxx".to_string(),
+        apikey: config.apikey,
         client: reqwest::Client::new(),
     };
 
